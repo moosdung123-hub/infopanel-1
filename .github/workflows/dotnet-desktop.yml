@@ -32,9 +32,10 @@ jobs:
 
     # Temporary hardware test patch for Peerless Assassin 120 VISION BLACK.
     # TRCC 2.1.8 protocol audit maps HID Type 2 PM=53 (0x35) to the
-    # 320x240 RGB565 default family, while this InfoPanel branch currently
-    # maps the LF20 entry to 320x320 JPEG.
-    - name: Apply PA120 Vision PM 0x35 test fix
+    # 320x240 RGB565 family, but the wire frame is sent as 240x320 after
+    # the device-family 90-degree transform. The previous 320x240 wire
+    # dimensions caused row/stride corruption on real hardware.
+    - name: Apply PA120 Vision PM 0x35 test fix v2
       shell: powershell
       run: |
         $path = "InfoPanel/ThermalrightPanel/ThermalrightPanelModelDatabase.cs"
@@ -46,13 +47,23 @@ jobs:
             $inside = $true
           }
 
+          if ($inside -and $line -match '^\s*Width\s*=\s*320,') {
+            $line -replace 'Width\s*=\s*320,', 'Width = 240,'
+            continue
+          }
+
           if ($inside -and $line -match '^\s*Height\s*=\s*320,') {
-            $line -replace 'Height\s*=\s*320,', 'Height = 240,'
+            $line
+            continue
+          }
+
+          if ($inside -and $line -match '^\s*RenderWidth\s*=\s*320,') {
+            $line -replace 'RenderWidth\s*=\s*320,', 'RenderWidth = 240,'
             continue
           }
 
           if ($inside -and $line -match '^\s*RenderHeight\s*=\s*320,') {
-            $line -replace 'RenderHeight\s*=\s*320,', 'RenderHeight = 240,'
+            $line
             continue
           }
 
@@ -78,12 +89,12 @@ jobs:
 
         # Keep source comments consistent with the tested mapping.
         $text = Get-Content -Path $path -Raw
-        $text = $text.Replace('TROFEO_BA120B_PM_BYTE      = 0x35;  //  53 -> 320x320, Jpeg ("LF20/LF21/LF22")', 'TROFEO_BA120B_PM_BYTE      = 0x35;  //  53 -> 320x240, RGB565 ("LF20/LF21/LF22")')
-        $text = $text.Replace('PM 0x35 (53): TRCC bulk table = "LF20/LF21/LF22" 320x320 Jpeg', 'PM 0x35 (53): TRCC HID Type 2 = "LF20/LF21/LF22" 320x240 RGB565')
+        $text = $text.Replace('TROFEO_BA120B_PM_BYTE      = 0x35;  //  53 -> 320x320, Jpeg ("LF20/LF21/LF22")', 'TROFEO_BA120B_PM_BYTE      = 0x35;  //  53 -> 240x320 wire frame, RGB565 ("LF20/LF21/LF22")')
+        $text = $text.Replace('PM 0x35 (53): TRCC bulk table = "LF20/LF21/LF22" 320x320 Jpeg', 'PM 0x35 (53): TRCC HID Type 2 = "LF20/LF21/LF22" 320x240 panel / 240x320 RGB565 wire frame')
         Set-Content -Path $path -Value $text -Encoding utf8
 
-        Write-Host "Applied PM 0x35 patch. Relevant lines:"
-        Select-String -Path $path -Pattern 'BA120VisionB|Name = "LF20"|Height = 240|RenderHeight = 240|PixelFormat = ThermalrightPixelFormat.Rgb565|TROFEO_BA120B_PM_BYTE' -Context 0,1
+        Write-Host "Applied PM 0x35 v2 patch. Relevant lines:"
+        Select-String -Path $path -Pattern 'BA120VisionB|Name = "LF20"|Width = 240|Height = 320|RenderWidth = 240|RenderHeight = 320|PixelFormat = ThermalrightPixelFormat.Rgb565|TROFEO_BA120B_PM_BYTE' -Context 0,1
 
     # Cache NuGet packages
     # - name: Cache NuGet packages
@@ -135,7 +146,7 @@ jobs:
         fi
 
     - name: Upload Release Asset
-      if: startsWith(github.ref, 'refs/tags/')
+      if: startsWith(github.ref, '-')
       id: upload-release-asset
       uses: ncipollo/release-action@v1
       with:
